@@ -2,6 +2,7 @@ package com.personal.controller;
 
 import java.net.URI;
 import java.util.List;
+import java.util.Optional;
 
 import javax.validation.Valid;
 
@@ -20,8 +21,11 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.support.ServletUriComponentsBuilder;
 
+import com.personal.bean.Post;
 import com.personal.bean.User;
 import com.personal.exception.UserNotFoundException;
+import com.personal.repository.PostRepository;
+import com.personal.repository.UserRepository;
 import com.personal.service.UserDaoService;
 
 /*
@@ -29,32 +33,35 @@ import com.personal.service.UserDaoService;
  * Controller naming convention fits better with MVC pattern
  */
 @RestController
-@RequestMapping("/api")
-public class UserController {
+@RequestMapping("/jpa")
+public class UserJPAController {
 	
 	@Autowired
-	private UserDaoService service;
+	private UserRepository userRepository;
+	
+	@Autowired
+	private PostRepository postRepository;
 	
 	//retrieve all users - GET /users
 	@GetMapping("/users")
 	public List<User> retrieveAllUsers() {
-		return service.findAll();
+		return userRepository.findAll();
 	}
 	
 	//retrieve user by id - GET /users/{id}
 	@GetMapping("/users/{id}")
-	public EntityModel<User> retrieveUser(@PathVariable int id) {
+	public EntityModel<Optional<User>> retrieveUser(@PathVariable int id) {
 		
-		User user = service.findOne(id);
+		Optional<User> user = userRepository.findById(id);
 		
 		// if user is null throw exception
-		if (user == null) {
+		if (!user.isPresent()) {
 			throw new UserNotFoundException("id: " + id + " not found");
 		}
 		
 		// return data and actions possible to perform on data
 		// provide links using hateoas
-		EntityModel<User> model = EntityModel.of(user);
+		EntityModel<Optional<User>> model = EntityModel.of(user);
 		
 		WebMvcLinkBuilder linkToUsers = linkTo(methodOn(this.getClass()).retrieveAllUsers());
 		
@@ -70,7 +77,7 @@ public class UserController {
 	@PostMapping("/users")
 	public ResponseEntity<Object> createUser(@Valid @RequestBody User user) {
 		
-		User savedUser = service.save(user);
+		User savedUser = userRepository.save(user);
 		
 		// Return status CREATED 201
 		// /user/{id}	savedUser.getId() 
@@ -84,13 +91,41 @@ public class UserController {
 	//delete user by id - DELETE /users/{id}
 	@DeleteMapping("/users/{id}")
 	public void deleteUser(@PathVariable int id) {
+		userRepository.deleteById(id);	
+	}
+	
+	// ===== Retrieve Posts for Specific User =====
+	@GetMapping("/users/{id}/posts")
+	public List<Post> retrievePostsByUser(@PathVariable int id) {
 		
-		User user = service.deleteById(id);
-		
-		// if user is null throw exception
-		if (user == null) {
-			throw new UserNotFoundException("id: " + id);
+		Optional<User> userOptional = userRepository.findById(id);
+		if(!userOptional.isPresent()) {
+			throw new UserNotFoundException("id: " + id + " not found");
 		}
+		
+		return userOptional.get().getPosts();
+	}
+	
+	// ===== Create Posts for Specific User =====
+	@PostMapping("/users/{id}/posts")
+	public ResponseEntity<Object> createPost(@PathVariable int id, @RequestBody Post post) {
+		
+		Optional<User> userOptional = userRepository.findById(id);
+		if(!userOptional.isPresent()) {
+			throw new UserNotFoundException("id: " + id + " not found");
+		}
+		
+		User user = userOptional.get();
+		post.setUser(user);
+		postRepository.save(post);
+		
+		// Return status CREATED 201
+		// /jpa/user/{id}/posts	post.getId() 
+		URI location = ServletUriComponentsBuilder.fromCurrentRequest()
+										   		  .path("/{id}")
+										   		  .buildAndExpand(post.getId()).toUri();
+				
+		return ResponseEntity.created(location).build();
 	}
 	
 }
